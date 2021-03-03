@@ -1,7 +1,7 @@
-//controle de lampada do jardim
-//  Req-01  ligar e desligar através do html
+//controle de lampada do jardim - 192.168.0.122
+//  Req-01  ligar e desligar através do html - botão ok
 //  Req-02  ligar e desligar via mqtt
-//  Req-03  sempre iniciar desligado
+//  Req-03  sempre iniciar desligado - ok
 //  Req-04  html tem prioridade sobre o mqtt:
 //  Req-04.1   - Ligar e iniciar um timer de 10 minutos para desligar a lâmpada se o mqtt estiver comandando para desligar;
 //  Req-04.2   - Desligar e iniciar um timer de 10 minutos para ligar a lâmpada se o mqtt estiver comandando para ligar;
@@ -9,8 +9,8 @@
 //  Req-05.1  - se o sistema estiver ligado, resetar após o sistema comandar para desligar;
 //  Req-05.2  - se desligado, resetar imediatamente;
 //  Req-05.3  - se estiver comando para ligar por até um dia do limte, resetar independe do tempo
-//  Req-06  html botao para resetar
-//  Req-07  html fazer update via OAT
+//  Req-06  html botao para resetar - nok (não liga)
+//  Req-07  html fazer update via OAT - ok
 //  Req-08  funcionar como modo AP de wireless
 //  Req-09  atualizar o mqtt (atualizar o mqtt server, username, password, pub/sub via html) via html e salvar na memória SPIFFS
 // it should work in the sonoff single and Nodemcu v1.0 - Relay in GPIO12 - D6
@@ -83,11 +83,35 @@ PubSubClient client(espClient);         //Serve para o MQTT publish/subscriber
 
 int relay = D6; // relay number
 boolean buttonState = false; // save the state of the button
-boolean mqttButton = false; // button to enable the mqtt
 boolean onoffButton = false;  // button to turn on / off the light
 
 //dev
 boolean serialPrint = false; // helps to print anything in the console
+
+//MQTT
+boolean mqttButton = false; // button to enable the mqtt
+//configuracao
+char* servidor_mqtt = "192.168.0.125";  //URL do servidor MQTT - Raspberry Pi
+char* servidor_mqtt_porta = "1883";  //Porta do servidor (a mesma deve ser informada na variável abaixo)
+char* servidor_mqtt_usuario = "pi1";  //Usuário
+char* servidor_mqtt_senha = "12345"; //Senha
+
+// receive message - these variable are used to receive all topics/mensages
+String mqtt_topico;         //Define o topico do mqtt
+String mqtt_mensagem;       //Define a mensagem mqtt
+
+// definicao de sub/pub
+const char* lamp_pub = "jardim/lamp1_pub";    //Topico para publicar o comando de inverter o pino do outro ESP8266
+const char* lamp_pubsupervisorio = "jardim/lamp1_supervisorio";    //Topico para publicar o comando de inverter o pino do outro ESP8266
+const char* lamp_sub = "jardim/lamp1";    //Topico para ler o comando do ESP8266
+
+//MQTT
+//Será usado quando atualizar via web
+//String server_mqtt;
+//String server_mqtt_porta;
+//String server_mqtt_usuario;
+//String server_mqtt_senha;
+
 ///////////////////////////////////////////////
 ///////////////////////////////////////////////
 /* OTA Configuration
@@ -135,7 +159,9 @@ void setup() {
   servidorWeb.on("/ESPReset", []() {
     WebReset();
     delay(1000);
-    ESP.reset();
+    //ESP.reset();
+    ESP.restart();
+    
   });
 
   // MQTT Button
@@ -151,6 +177,13 @@ void setup() {
 
     // OTA
   InicializaServicoAtualizacao();
+
+  //MQTT - conect
+  int portaInt = atoi(servidor_mqtt_porta); //convert string to number
+  client.setServer(servidor_mqtt, portaInt);
+  client.setCallback(retornoMQTTSub);
+  //MQTT start the subscribers
+  mqttSubscribe();
 }
  
 void loop() {
@@ -158,18 +191,38 @@ void loop() {
    * Verifica o botao faz ligar e desligar
    */
 
-   if (onoffButton && buttonState == false){
-    //turn on the system (TBC)
+   if (onoffButton){
+    //turn on the system (liga)
     digitalWrite(relay,LOW);
-    buttonState = false;
+    buttonState = true;
    }
-   if (!onoffButton && buttonState == true){
-    //turn on the system (TBC)
+   if (!onoffButton){
+    //turn on the system (desliga)
     digitalWrite(relay,HIGH);
     buttonState = false;
    }
 
+  //MQTT - Reconnect
+  if (!client.connected() and (mqttButton == true)) {
+    // reconnect the mqqt
+    //troubleshooting the next line
+    reconnectMQTT();
+    if (serialPrint){
+      Serial.println("reconectar mqtt");
+    }
+    
+    //countMQTT++;
+    //}
+    client.publish(lamp_pubsupervisorio, "delay - mqtt reconnect");
+  }
+
+
 
   //Servidor Web
   servidorWeb.handleClient();
+  
+  //Wifi MQTT;
+  if (mqttButton){
+    client.loop();
+  }
 }
