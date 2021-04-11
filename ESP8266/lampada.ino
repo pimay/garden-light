@@ -61,6 +61,25 @@
    Sonoff Single
    Button 0 - GPIO14 - D5
    Relay    - GPIO12 - D6
+
+  next to button 3.3 RX TX GND GPIO14, INTERNAL LED
+  before turn on, press the button
+  gpio13 - is a led 
+  
+
+   Configuration
+   board: Generic ESP8266 Module (sonoff)
+   flash mode: DOUT
+   size: 1M 64K SPIFFS
+   Debug Port: Disable
+   IwIP: 1.4 higher bandwidth
+   Reset method: nodemcu
+   cristal 26Mhz
+   flash   40 Mhz
+   cpu     80Mhz
+   Upload speed 115200
+   Erase Flash: only sketch
+   
 */
 
 #include <FS.h>
@@ -69,6 +88,7 @@
 #include <WiFiManager.h>        //https://github.com/tzapu/WiFiManager
 #include <PubSubClient.h>              //MQTT
 #include <ArduinoJson.h>                 //https://github.com/bblanchon/ArduinoJson
+#define sonoffLed 13 //GPIO13;
 ///////////////////////////////////////////////
 ///////////////////////////////////////////////
 /* General configuration
@@ -79,11 +99,14 @@ ESP8266HTTPUpdateServer atualizadorOTA; //Este e o objeto que permite atualizaca
 ESP8266WebServer servidorWeb(80);       //Servidor Web na porta 80
 WiFiClient espClient;                   //serve para o MQTT, create the WiFiClient
 PubSubClient client(espClient);         //Serve para o MQTT publish/subscriber
-
+// It can only publish QoS 0 messages. It can subscribe at QoS 0 or QoS 1.
 ///////////////////////////////////////////////
 ///////////////////////////////////////////////
 
-int relay = D6; // relay number
+
+
+int relay = 12;//D6; // relay number
+
 int buttonState = -1; // save the state of the button
 int onoffButton = 0;  // button to turn on / off the light
 int lampState = 0; //turn on/off the lamp
@@ -109,9 +132,9 @@ String mqtt_topico;         //Define o topico do mqtt
 String mqtt_mensagem;       //Define a mensagem mqtt
 
 // definicao de sub/pub
-const char* lamp_pub = "jardim/lamp1_pub";    //Topico para publicar o comando de inverter o pino do outro ESP8266
-const char* lamp_pubsupervisorio = "jardim/lamp1_supervisorio";    //Topico para publicar o comando de inverter o pino do outro ESP8266
-const char* lamp_sub = "jardim/lamp1";    //Topico para ler o comando do ESP8266
+const char* lamp_pub = "jardim/lamp4_pub";    //Topico para publicar o comando de inverter o pino do outro ESP8266
+const char* lamp_pubsupervisorio = "jardim/lamp4_supervisorio";    //Topico para publicar o comando de inverter o pino do outro ESP8266
+const char* lamp_sub = "jardim/lamp4";    //Topico para ler o comando do ESP8266
 
 //time
 unsigned long confTime = 0;
@@ -195,8 +218,28 @@ int lampCommandbtn( int onoffButton, int* buttonState){
 ///////////////////////////////////////////////
 
 void setup() {
-  pinMode(relay, OUTPUT);
   Serial.begin(9600);   
+  pinMode(relay, OUTPUT);
+  pinMode(sonoffLed, OUTPUT);
+  
+  //WIFI
+  WiFiManager wifiManager;                // start the wifi manager
+  //reset settings - for testing
+  //wifiManager.resetSettings();
+
+  //sets timeout until configuration portal gets turned off
+  //useful to make it all retry or go to sleep
+  //in seconds
+  //Default 180 seconds
+  wifiManager.setTimeout(120);
+
+  //fetches ssid and pass and tries to connect
+  //if it does not connect it starts an access point with the specified name
+  //here  "AutoConnectAP"
+  //and goes into a blocking loop awaiting configuration
+  if (!wifiManager.autoConnect("AutoConnectAP_ESP", "senha1234")) {
+    delay(3000);
+  }
   
   //Inicia o servidor web
   servidorWeb.on("/", handleRootInicial);
@@ -257,6 +300,7 @@ void setup() {
   client.setCallback(retornoMQTTSub);
   //MQTT start the subscribers
   mqttSubscribe();
+  
   
 }
 //////////////////////////////////////////////
@@ -357,10 +401,12 @@ void loop() {
     //Serial.print("lampState update: " + String(lampState)+" "+String(oldlampState) +"\n");
     if (lampState){
       //turn on the system (liga)
-      digitalWrite(relay,LOW);
+      digitalWrite(relay,HIGH);
+      digitalWrite(sonoffLed,HIGH);
     }else{
       //turn on the system (desliga)
-      digitalWrite(relay,HIGH);
+      digitalWrite(relay,LOW);
+      digitalWrite(sonoffLed,LOW);
       
       }
     //publish the state
@@ -377,7 +423,7 @@ void loop() {
 
 
   //MQTT - Reconnect
-  if (!client.connected() and (mqttButton == true)) {
+  if (!client.connected() and (mqttButton)) {
     // reconnect the mqqt
     //troubleshooting the next line
     reconnectMQTT();
@@ -394,7 +440,7 @@ void loop() {
     mqttButtonSt = mqttButton;
   }
   
-  if(mqttButtonSt != mqttButton){
+  if(mqttButtonSt == false and mqttButton){
     client.publish(lamp_pub, "reboot");
     mqttButtonSt = mqttButton;
   }  
@@ -405,10 +451,9 @@ void loop() {
   servidorWeb.handleClient();
   
   //Wifi MQTT;
-  //if (mqttButton){
-  client.loop();
-  //}
-  
+  if (mqttButton){
+    client.loop();
+  }
 }
 
 /*Tests:
